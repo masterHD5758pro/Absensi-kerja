@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Verifikasi Absensi Kantor</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; text-align: center; padding: 40px 20px; color: #333; }
+        .card { background: white; max-width: 450px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        h2 { color: #1a73e8; margin-bottom: 10px; }
+        p { font-size: 15px; color: #666; line-height: 1.5; }
+        .btn { display: inline-block; background-color: #1a73e8; color: white; padding: 14px 28px; font-size: 16px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-weight: bold; margin-top: 20px; transition: background 0.3s; width: 100%; box-sizing: border-box; }
+        .btn:hover { background-color: #1557b0; }
+        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
+        .status { margin-top: 20px; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 14px; display: none; }
+        .loading { color: #f39c12; background-color: #fef9e7; border: 1px solid #fdebd0; }
+        .sukses { color: #27ae60; background-color: #e8f8f5; border: 1px solid #d1f2eb; }
+        .gagal { color: #c0392b; background-color: #fdedd8; border: 1px solid #fadbd8; }
+        .opsi-absen { display: none; margin-top: 25px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Absensi Kehadiran</h2>
+    <p>Silakan klik tombol di bawah untuk memverifikasi lokasi GPS Anda sebelum mengisi Google Form absensi.</p>
+    
+    <button id="btnCek" class="btn" onclick="prosesVerifikasi()">Ambil Lokasi GPS</button>
+    
+    <div id="boxStatus" class="status"></div>
+    
+    <!-- Bagian Pilihan Status Absen (Muncul jika GPS lolos) -->
+    <div id="opsiAbsen" class="opsi-absen">
+        <p><strong>Lokasi Terverifikasi!</strong> Silakan pilih status kehadiran Anda:</p>
+        <button class="btn" style="background-color: #2ecc71;" onclick="bukaForm('Berangkat')">Masuk / Berangkat</button>
+        <button class="btn" style="background-color: #e74c3c; margin-top: 10px;" onclick="bukaForm('Pulang')">Pulang</button>
+    </div>
+</div>
+
+<script>
+    // === PENTING: PENGATURAN KOORDINAT KANTOR ANDA ===
+    const LAT_KANTOR = -6.9108146;  // Masukkan Latitude kantor Anda sesuai data Sheet
+    const LNG_KANTOR = 109.629861;  // Masukkan Longitude kantor Anda sesuai data Sheet
+    const RADIUS_MAKSIMAL = 50;     // Toleransi jarak radius dalam meter
+    
+    let infoGPSKaryawan = "";
+
+    function prosesVerifikasi() {
+        const btn = document.getElementById("btnCek");
+        const box = document.getElementById("boxStatus");
+        
+        btn.disabled = true;
+        box.style.display = "block";
+        box.className = "status loading";
+        box.innerText = "Sedang mengunci koordinat GPS HP Anda...";
+
+        if (!navigator.geolocation) {
+            tampilkanGagal("Browser Anda tidak mendukung deteksi GPS.");
+            return;
+        }
+
+        // Paksa akurasi GPS tertinggi (enableHighAccuracy)
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const latUser = position.coords.latitude;
+                const lngUser = position.coords.longitude;
+                infoGPSKaryawan = latUser + "," + lngUser;
+
+                // Hitung jarak antara karyawan ke kantor menggunakan rumus matematika bumi bulat
+                const jarak = hitungJarakMeter(latUser, lngUser, LAT_KANTOR, LNG_KANTOR);
+
+                if (jarak <= RADIUS_MAKSIMAL) {
+                    box.className = "status sukses";
+                    box.innerText = "GPS Valid! Anda berada di area kantor (Jarak: " + Math.round(jarak) + " meter).";
+                    btn.style.display = "none";
+                    document.getElementById("opsiAbsen").style.display = "block";
+                } else {
+                    tampilkanGagal("Akses Ditolak! Anda berada di luar radius kantor (Jarak: " + Math.round(jarak) + " meter). Silakan mendekat ke area lobi.");
+                    btn.disabled = false;
+                }
+            },
+            (error) => {
+                tampilkanGagal("Gagal mengambil GPS. Pastikan izin lokasi HP aktif dan pilih mode Akurasi Tinggi.");
+                btn.disabled = false;
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }
+
+    function tampilkanGagal(pesan) {
+        const box = document.getElementById("boxStatus");
+        box.className = "status gagal";
+        box.innerText = pesan;
+    }
+
+    // Fungsi membuat token waktu otomatis agar QR/Form tidak bisa dipakai foto lama (berubah tiap menit)
+    function buatTokenWaktu() {
+        const d = new Date();
+        // Menggabungkan tahun, bulan, tanggal, jam, dan menit saat ini menjadi string acak terenkripsi sederhana
+        const polaWaktu = d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate() + "-" + d.getHours() + "-" + d.getMinutes();
+        return btoa(polaWaktu); // Mengubah ke format Base64 agar tidak mudah dibaca manual oleh karyawan
+    }
+
+    function bukaForm(statusAbsen) {
+        const tokenOtomatis = buatTokenWaktu();
+        
+        // Link utama Google Form Anda dengan ID data entri yang telah disesuaikan
+        const baseUrl = "https://docs.google.com/forms/d/e/1FAIpQLSfyPUU3Q3HGV-_ii5DPM2ma1J83M4enTsMncJU4eRJ5oiKDQg/viewform";
+        
+        // Memasukkan data GPS, Token Waktu, dan Pilihan Status langsung ke kolom Form
+        const finalUrl = baseUrl + "?usp=pp_url" +
+                         "&entry.1958622535=" + encodeURIComponent(tokenOtomatis) +
+                         "&entry.664732637=" + encodeURIComponent(infoGPSKaryawan) +
+                         "&entry.2020212363=" + encodeURIComponent(statusAbsen);
+        
+        // Alihkan karyawan langsung ke Google Form untuk submit selfie/kirim data
+        window.location.href = finalUrl;
+    }
+
+    // Rumus Matematika Haversine untuk konversi koordinat ke satuan meter
+    function hitungJarakMeter(lat1, lon1, lat2, lon2) {
+        const R = 6371000; 
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+</script>
+
+</body>
+</html>
